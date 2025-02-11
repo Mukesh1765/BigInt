@@ -1,548 +1,649 @@
+//MUKESH - BT23CSE017 - ASSIGNMENT 1
+
 /* 
 Since implementation has to be done for a 1024-bit integer we can calculate the number of bits required to
-represent it as an integer
---> we have a 1024-bit integer which can at max represent an integer of value equivalent to 2^1024 - 1
---> if we take a n bit integer(reprented in the digits 0- 9) it can at max represent 10^n - 1
---> no equalling them and using logarithm we get n <= 309
-    thus we can conlude that a 1024 bit binary integer can be easily represented in a 309 bit integer representation
+represent it as an integer and create a array of char type of that size
+--> n bit integer can represent upto (2^n-1) -1
+--> we have a 1024-bit integer which can at max represent an integer of value equivalent to 2^1023 - 1
+--> if we take a n digit integer(reprented in the digits 0- 9) it can at max represent (10^n-1) - 1
+--> now equalling them and using logarithm we get n <= 309
+--> thus we can conlude that a 1024 bit binary integer can be easily represented in a 309 bit integer representation
 */
 
 #include<stdio.h>
 #include<stdlib.h>
-typedef enum {POSITIVE,NEGATIVE} sign_Status;
-typedef enum {FALSE,TRUE} bool;
+#include<string.h>
+#include<stdint.h> //for unsigned integers of 8bits(1byte)
 
-typedef struct node_tag{
-    short int data;
-    struct node_tag* next;
-    struct node_tag* prev;
-}Node;
+#define BIGINT_SIZE 311 //309 digits + 1 for sign + 1 for \0(null termiantor)
 
-typedef struct int_tag{
-    Node* head;
-    Node* tail;
-    int size;
-    sign_Status sign;
+typedef enum {FALSE, TRUE} bool;
+typedef enum {POSITIVE, NEGATIVE} numSign;
+typedef enum {SMALL = -1, EQUAL, LARGE} compareStatus;
+
+typedef struct BigInt {
+    uint8_t* digit_array;// as my numbers are from 0 - 9, so they can be stored unsigned 8bit integers (rang : 0 - 255)
+    numSign sign; //negative = 1, positive = 0
+    short size;//as size <= 311 so it can be stored in short (range : -32768 to 32767)
 }BigInt;
 
-Node* createNode(short int val){
-    Node* ptr = (Node *)malloc(sizeof(Node));
-    ptr->data = val;
-    ptr->next = NULL;
-    ptr->prev = NULL;
-    return ptr;
+short max (short a, short b) {
+    return (a > b) ? a : b;
 }
 
-void initializeBigInt(BigInt *B){
-    B->head = NULL;
-    B->tail = NULL;
-    B->sign = POSITIVE;
-    B->size = 0;
+short string_length (char *str) {
+    short length = 0;
+
+    //first digit denotes sign of the integer, so i starts from 1;
+    if (str != NULL) {
+        short i = 1;
+        while (str[i] != '\0') {
+            length += 1;
+            i += 1;
+        }
+    }
+
+    return length;
 }
 
-int length(char s[]){
-    int i = 0;
-    while(s[i] != '\0'){
+bool isValidInput (char* str) { // to ensure given input contains only specified format
+    bool ans = TRUE;
+    short i = 0, length;
+    length = string_length(str);
+
+    if (str[i] == ' ' || str[i] == '+' || str[i] == '-') {
+        i = i + 1;
+        while (i != length && ans) {
+            if (str[i] < 48 || str[i] > 57) { // 0 - ascii value - 48 and 9 ascii value - 57 
+                ans = FALSE;
+            }
+            i += 1;
+        }
+    } else {
+        ans = FALSE;
+    }
+
+    return ans;
+}
+
+//This function is checked only when the input string is in valid form
+numSign signSpecifier (char *str) {
+    numSign sign;
+
+    if (str[0] == '+' || str[0] == ' ') {
+        sign = POSITIVE;
+    } else if (str[0] == '-') {
+        sign = NEGATIVE;
+    }
+
+    return sign;
+}
+
+void initializeBigInt (BigInt* b, short size, numSign sign) {
+    b -> digit_array = (uint8_t*) calloc(size , sizeof(uint8_t));
+
+    if(b -> digit_array != NULL) { //safe side so that we dont get into segmentation fault by accesing null
+        b -> sign = sign;
+        b -> size = size;
+    } else {
+        free(b -> digit_array);
+        b -> digit_array = NULL;
+        printf("memory allocation failed.\n");
+        exit(EXIT_FAILURE); //stops execution and exits status is failure(1)
+    }
+}
+
+BigInt readNumFromString (char *str) {
+    BigInt b;
+    numSign sign = signSpecifier(str);
+    short length = string_length(str);
+    initializeBigInt(&b, length, sign);
+    short i = 1;
+
+    while (str[i] != '\0') {
+        uint8_t digit = str[i] - '0';
+        b.digit_array[i-1] = digit;
+        i += 1;
+    }
+    return b;
+}
+
+//sign not considered
+compareStatus compareMagnitude (BigInt b1, BigInt b2) {
+    compareStatus cs;
+
+    if (b1.size > b2.size) {
+        cs = LARGE;
+    } else if (b1.size < b2.size) {
+        cs = SMALL;
+    } else {
+        short size = b1.size;
+        short i = 0;
+        while (i < size && b1.digit_array[i] == b2.digit_array[i]) {
+            i = i + 1;
+        }
+        if (i == size) {
+            cs = EQUAL;
+        } else if (b1.digit_array[i] > b2.digit_array[i]) {
+            cs = LARGE;
+        } else if (b1.digit_array[i] < b2.digit_array[i]) {
+            cs = SMALL;
+        }
+    }
+
+    return cs;
+}
+
+//sign considered
+compareStatus compareNumbers (BigInt b1, BigInt b2) {
+    compareStatus cs;
+    
+    //positive is always larger than negative
+    if (b1.sign == POSITIVE && b2.sign == NEGATIVE) {
+        cs = LARGE;
+    } else if (b1.sign == NEGATIVE && b2.sign == POSITIVE) {
+        cs = SMALL;
+    }
+
+    if (b1.sign == POSITIVE) {
+        cs =  compareMagnitude(b1, b2);
+    } else {
+        compareStatus result = compareMagnitude(b1, b2);
+        if (result == LARGE) {
+            cs = SMALL;
+        } else if (result == SMALL) {
+            cs = LARGE;
+        } else {
+            cs = EQUAL;
+        }
+    }
+
+    return cs;
+}
+
+bool isBigIntZero (BigInt b) {
+    short i = 0;
+    bool ans;
+
+    while (i < b.size && b.digit_array[i] == 0) {
         i++;
     }
-    return i;
+
+    if(i == b.size) {
+        ans = TRUE;
+    } else {
+        ans = FALSE;
+    }
+
+    return ans;
 }
 
-void printDigits(Node* head){
-    if(head == NULL){
+short size_diff (BigInt b1, BigInt b2) {
+    return abs(b1.size - b2.size);
+}
+
+//function assumes that b1 > b2
+BigInt subraction (BigInt b1, BigInt b2, short size, numSign sign) {
+    BigInt b;
+    initializeBigInt(&b, size, sign);
+    short i = b1.size - 1;
+    short j = b2.size - 1;
+    short sizeDiff = size_diff(b1, b2);
+    uint8_t borrow = 0;
+
+    while (i >= 0 && j >= 0) {
+        int8_t digitDiff = b1.digit_array[i] - b2.digit_array[j] - borrow;
+        if (digitDiff < 0) {
+            borrow = 1;
+            digitDiff += 10;
+        } else {
+            borrow = 0;
+        }
+        b.digit_array[i] = digitDiff; 
+        i -= 1;
+        j -= 1;
+    }
+
+    while (i >= 0) {
+        int8_t digitDiff = b1.digit_array[i] - borrow;
+        if (digitDiff < 0) {
+            borrow = 1;
+            digitDiff += 10;
+        } else {
+            borrow = 0;
+        }
+        b.digit_array[i] = digitDiff; 
+        i -= 1;
+    }
+    //as arg1 > arg2 so we dont check for j as j will always approach zero first
+
+    return b;
+}
+
+BigInt addTwoNumbers (BigInt b1, BigInt b2) {
+    BigInt b;
+    numSign sign;
+    compareStatus cs1, cs;
+
+    cs1 = compareNumbers(b1, b2);
+    cs = compareMagnitude(b1, b2);
+
+    if (b1.sign == b2.sign) {
+        short sizeDiff = size_diff(b1, b2);
+        short length = max(b1.size, b2.size) + 1; // extra 1 block for carry. if carry exists actually it overflows so to prevent overflow extra one block
+        sign = b1.sign;
+        initializeBigInt(&b, length, sign);
+        short size;
+        size = max(b1.size, b1.size);
+        short i = b1.size - 1;
+        uint8_t carry = 0;
+        short j = b2.size-1;
+
+        while (i >= 0 && j >= 0) {
+            uint8_t digitSum = b1.digit_array[i] + b2.digit_array[j] + carry;
+            uint8_t digit = digitSum % 10;
+            short k = (b1.size > b2.size) ? i : j;
+            b.digit_array[k + 1] = digit;
+            carry = digitSum / 10;
+            i -= 1;
+            j -= 1;
+        }
+        while (i >= 0) {
+            uint8_t digitSum = b1.digit_array[i] + carry;
+            uint8_t digit = digitSum % 10;
+            b.digit_array[i + 1] = digit;
+            carry = digitSum / 10;
+            i -= 1;
+        }
+        while (j >= 0) {
+            uint8_t digitSum = b2.digit_array[j] + carry;
+            uint8_t digit = digitSum % 10;
+            b.digit_array[j + 1] = digit;
+            carry = digitSum / 10;
+            j -= 1;
+        }
+
+        short k = (b1.size > b2.size) ? i : j;
+        if (carry) {
+            b.digit_array[k + 1] = 1;
+        } else {
+            b.digit_array[k + 1] = 0;
+        }
+    } else {
+        short length = max(b1.size, b2.size); //the max size could not exceed maximum of two numbers in subraction
+
+        if (b1.sign == POSITIVE && b2.sign == NEGATIVE) {
+            if (cs == LARGE || cs == EQUAL) {
+                sign = POSITIVE;
+                b = subraction(b1, b2, length, sign);
+            } else {
+                sign = NEGATIVE;
+                b = subraction(b2, b1, length, sign);
+            }
+        } else {
+            if (cs == LARGE || cs == EQUAL) {
+                sign = NEGATIVE;
+                b = subraction(b1, b2, length, sign);
+            } else {
+                sign = POSITIVE;
+                b = subraction(b2, b1, length, sign);
+            }
+        }
+    }
+
+    return b;
+}
+
+BigInt subtracTwotBigInts (BigInt b1, BigInt b2) {
+    BigInt b;
+    short length = max(b1.size, b2.size); 
+    compareStatus cs = compareMagnitude(b1, b2);
+    numSign resultSign;
+
+    //just use above add function with taking care of signs
+    if (b1.sign == POSITIVE && b2.sign == POSITIVE) {
+        //b1 - b2 = b1 - b2
+        if (cs == LARGE || cs == EQUAL) {
+            resultSign = POSITIVE;
+            b = subraction(b1, b2, length, resultSign);
+        } else {
+            resultSign = NEGATIVE;
+            b = subraction(b2, b1, length, resultSign);
+        }
+    } else if (b1.sign == POSITIVE && b2.sign == NEGATIVE) {
+        // b1 - (-b2) = b1 + b2
+        resultSign = POSITIVE;
+        b2.sign = POSITIVE;
+        b1.sign = POSITIVE;
+        b = addTwoNumbers(b1, b2);
+        b.sign = resultSign;
+    } else if (b1.sign == NEGATIVE && b2.sign == POSITIVE) {
+        // (-b1) - b2 = -(b1 + b2)
+        resultSign = NEGATIVE;
+        b2.sign = POSITIVE;
+        b1.sign = POSITIVE;
+        b = addTwoNumbers(b1, b2);
+        b.sign = resultSign;
+    } else {
+        // (-b1) - (-b2) = b2 - b1
+        if (cs == LARGE || cs == EQUAL) {
+            resultSign = NEGATIVE;
+            b = subraction(b1, b2, length, resultSign);
+        } else {
+            resultSign = POSITIVE;
+            b = subraction(b2, b1, length, resultSign);
+        }
+    }
+
+    return b;
+}
+
+//i wont consider overflow rather store the whole result in a bigint structure in which array could have maximum size of 618(309 + 309)
+BigInt multiplyTwoBigInt (BigInt b1, BigInt b2) {
+    BigInt b;
+    numSign sign = b1.sign ^ b2.sign;
+    short size = b1.size + b2.size;
+    initializeBigInt(&b, size, sign);
+    b.sign = POSITIVE;
+    short size1 = b1.size;
+    short size2 = b2.size;
+    short extraSpacing = 0;
+
+    for (short i = size2 - 1; i >= 0; i--) {
+        BigInt pb;
+        //array with extraspacing, the extra spacing has zeroes because as we shift left by 1 and add 0 at right and continues this method
+        initializeBigInt(&pb, size1 + 1 + extraSpacing, POSITIVE);
+        int8_t carry = 0;
+        short j;
+        short ind = pb.size - 1 - extraSpacing;
+        for (j = size1 - 1; j >= 0; j--)  {
+            int8_t digitMulti = (b2.digit_array[i] * b1.digit_array[j]) + carry; 
+            pb.digit_array[ind] = digitMulti % 10;
+            carry = digitMulti / 10;
+            ind--;
+        }
+        if (carry != 0) {
+            pb.digit_array[ind] = carry;
+            ind--;
+        }
+        extraSpacing += 1;
+        b = addTwoNumbers(b, pb);
+        free (pb.digit_array);
+    }
+    b.sign = sign;
+
+    return b;
+}
+
+void printDigits(BigInt b) {
+    short size = b.size;
+    short i = 0;
+
+    //to make sure starting zeroes are not printed
+    while (i < size - 1 && b.digit_array[i] == 0) {
+        i = i + 1;
+    }
+
+    if (isBigIntZero(b)) {
+        printf("0\n");
         return;
     }
-    printDigits(head->next);
-    printf("%hd",head->data);
+
+    char sign = (b.sign == POSITIVE) ? '+' : '-';
+    printf("%c", sign);
+
+    for (; i < size; i++) {
+        printf("%u", b.digit_array[i]);
+    }
+
+    printf("\n");
 }
 
-void displayNum(BigInt* num){
-    if(num->head == NULL){
-        printf("NULL VALUE\n");
+BigInt copyBigInt (BigInt b) {
+    BigInt b1;
+    initializeBigInt(&b1, b.size, b.sign);
+    for (int i = 0; i < b.size; i++) {
+        b1.digit_array[i] = b.digit_array[i];
     }
-    else{
-        if(num->sign == NEGATIVE){
-            printf("-");
-        }
-        Node* ptr = num->head;
-        printDigits(ptr);
-    }
+    return b1;
 }
 
-bool isFormatValid(char s[]){
-    bool flag = TRUE;
-    int i = 0;
-    if(s[0] == ' ' || s[0] == '+' || s[0] == '-'){
-        i++;
-    }
-    else{
-        flag = FALSE;
-    }
-    int n = length(s) - 1;
-    while(i < n && flag){
-        int t = s[i] - '0';
-        if(!(t <= 9 && t>= 0)){
-            flag = FALSE;
-        }
-        i++;
-    }
-    return flag;
-}
-
-void AddatTail(Node** head,Node** tail,short int val){
-    Node* new = createNode(val);
-    if(*head == NULL){
-        *head = new;
-        *tail = *head;
-    }
-    else{
-        (*tail)->next = new;
-        new->prev = (*tail);
-        (*tail) = (*tail)->next;
-    }
-}
-
-void readNum(BigInt* num, char s[]){
-    int n = length(s) - 1;
-    while(n > 0 && num->size < 309){
-        AddatTail(&(num->head),&(num->tail),(s[n] - '0'));
-        n--;
-        (num->size)++;
-    }
-    if(s[0] == '-'){
-        num->sign = NEGATIVE;
-    }
-}
-
-bool isBigIntZero(BigInt* num){
-    bool ans;
-    if(num->size == 1 && num->head->data == 0)
-        ans = TRUE;
+BigInt divideBigInt(BigInt dividend, BigInt divisor) {
     
-    else
-        ans = FALSE;
+    if (isBigIntZero(divisor)) {
+        printf("Error: Division by zero\n");
+        BigInt result;
+        initializeBigInt(&result, 1, POSITIVE);
+        result.digit_array[0] = 0;
+        return result;
+    }
+    BigInt quotient;
+    initializeBigInt(&quotient, dividend.size, POSITIVE);
     
-    return ans;
-}
-
-int compareNum(BigInt* num1,BigInt* num2){ // returns -1 if num1 < num2 &    0 if num1 == num2 &        1 if num1 > num2
-    int ret_val;
-    if(num1->sign == POSITIVE && num2->sign == POSITIVE){
-        if(num1->size > num2->size){
-            ret_val = 1;
-        }
-        else if(num1->size < num2->size){
-            ret_val = -1;
-        }
-        else{
-            Node* ptr1 = num1->tail;
-            Node* ptr2 = num2->tail;
-            while(ptr1 && ptr2 && (ptr1->data == ptr2->data)){
-                ptr1 = ptr1->prev;
-                ptr2 = ptr2->prev;
-            }
-            if(ptr1 == NULL && ptr2 == NULL){
-                ret_val = 0;
-            }
-            else{
-                if(ptr1->data > ptr2->data){
-                    ret_val = 1;
-                }
-                else{
-                    ret_val = -1;
-                }
-            }
-        }
-    }
-    else if(num1->sign == POSITIVE && num2->sign == NEGATIVE){
-        ret_val = 1;
-    }
-    else if(num1->sign == NEGATIVE && num2->sign == POSITIVE){
-        ret_val = -1;
-    }
-    else if(num1->sign == NEGATIVE && num2->sign == NEGATIVE){
-        if(num1->size > num2->size){
-            ret_val = -1;
-        }
-        else if(num1->size < num2->size){
-            ret_val = 1;
-        }
-        else{
-            Node* ptr1 = num1->tail;
-            Node* ptr2 = num2->tail;
-            while(ptr1 && ptr2 && (ptr1->data == ptr2->data)){
-                ptr1 = ptr1->prev;
-                ptr2 = ptr2->prev;
-            }
-            if(ptr1 == NULL && ptr2 == NULL){
-                ret_val = 0;
-            }
-            else{
-                if(ptr1->data > ptr2->data){
-                    ret_val = -1;
-                }
-                else{
-                    ret_val = 1;
-                }
-            }
-        }
-    }
-    return ret_val;
-}
-
-int max(int a,int b){
-    int ans = (a > b) ? a : b;
-    return ans;
-}
-
-BigInt addNumbers(BigInt* num1,BigInt* num2){
-    BigInt ans;
-    initializeBigInt(&ans);
-
-    if(num1->head == NULL || num2->head == NULL){
-        printf("Add operation cannot be performed since ");
-        printf("atleast One of the numbers you entered is invalid , please enter numbers correctly ");
-        printf("returning NULL values as answer \n\n");
-        return ans;
+    if (compareMagnitude(dividend, divisor) == SMALL) {
+        quotient.digit_array[0] = 0;
+        quotient.size = 1;
+        return quotient;
     }
 
-    int flag = 1;
-    int size = max(num1->size,num2->size);
-    if(num1->sign == num2->sign){
-        Node* ptr1 = num1->head;
-        Node* ptr2 = num2->head;
-        short int carry = 0;
-        while(ptr1 || ptr2 &&(flag)){
-            short int a = (ptr1 != NULL) ? ptr1->data : 0;
-            short int b = (ptr2 != NULL) ? ptr2->data : 0;
-            short int sum = a + b + carry;
-            carry = sum / 10;
-            sum = sum % 10;
-            AddatTail(&(ans.head),&(ans.tail),sum);
-            if(ptr1)
-                ptr1 = ptr1->next;
-            if(ptr2)
-                ptr2 = ptr2->next;
-            if(ptr1 == NULL && ptr2 == NULL){
-                if(carry && size < 309){
-                    AddatTail(&(ans.head),&(ans.tail),carry);
-                    size++;
-                }
-                else if(carry && size >= 309){
-                    flag = 0;
-                }
-            }
-        }
-        ans.size = size;
-        if(((num1->sign == NEGATIVE) && (num2->sign == NEGATIVE)))
-            ans.sign = NEGATIVE;
-    }
-
-    else if((num1->sign == NEGATIVE) ^ (num2->sign == NEGATIVE)){
-        BigInt tempnum1;
-        BigInt tempnum2;
-        if(num1->sign == NEGATIVE){
-            num1->sign = POSITIVE;
-            int compare = compareNum(num1,num2);
-            if(compare == -1){
-                tempnum1 = *num2;
-                tempnum2 = *num1;
-                ans.sign = POSITIVE;
-                num1->sign = NEGATIVE;
-            }
-            else if(compare == 1){
-                tempnum1 = *num1;
-                tempnum2 = *num2;
-                ans.sign = NEGATIVE;
-                num1->sign = NEGATIVE;
-            }
-            else if(compare == 0){
-                Node* temp = createNode(0);
-                ans.head = ans.tail = temp;
-                (ans.size)++;
-                num1->sign = NEGATIVE;
-                return ans;
-            }
-        }
-        if(num2->sign == NEGATIVE){
-            num2->sign = POSITIVE;
-            int compare = compareNum(num1,num2);
-            if(compare == -1){
-                tempnum1 = *num2;
-                tempnum2 = *num1;
-                num2->sign = NEGATIVE;
-                ans.sign = NEGATIVE;
-            }
-            else if(compare == 1){
-                tempnum1 = *num1;
-                tempnum2 = *num2;
-                num2->sign = NEGATIVE;
-                ans.sign = POSITIVE;
-            }
-            else if(compare == 0){
-                Node* temp = createNode(0);
-                ans.head = ans.tail = temp;
-                (ans.size)++;
-                num2->sign = NEGATIVE;
-                return ans;
-            }
-        }
-        Node* ptr1 = tempnum1.head;
-        Node* ptr2 = tempnum2.head;
-        short int borrow = 0;
-        while(ptr1 || ptr2){
-            short int x = (ptr1 != NULL) ? ptr1->data : 0;
-            short int y = (ptr2 != NULL) ? ptr2->data : 0;
-            short int s  = x - borrow;
-            borrow = 0;
-            if(s < y){
-                s = s + 10;
-                borrow++;
-            }
-            short int diff = s - y;
-            AddatTail(&(ans.head),&(ans.tail),diff);
-            if(ptr1)
-                ptr1 = ptr1->next;
-            if(ptr2)
-                ptr2 = ptr2->next;
-        }
-        ans.size = size;
-    }
+    BigInt current;
+    initializeBigInt(&current, dividend.size, POSITIVE);
+    short current_size = 0;
     
-    Node* temp = ans.tail;
-    //identifying leading zeroes if any
-    while(temp && temp->data == 0){
-        temp = temp->prev;
-    }
-    //resetting the values
-    if(temp){
-        ans.tail = temp;
-        temp = temp->next;
-        ans.tail->next = NULL;
-    }
-    else{
-        temp = ans.head->next;
-        ans.head->next = NULL;
-    }
-    while(temp){
-        Node* x = temp;
-        temp = temp->next;
-        free(x);
-    }
-    if(!flag){
-        printf("\nBit Overflow (or) UnderFlow\n");
-        printf("The returned ans is inaccurate\n");
-    }
-    return ans;
-}
-
-BigInt subtractNumbers(BigInt* num1,BigInt* num2){ // returns a number whose result is NUM1 - NUM2
-    BigInt ans;
-    initializeBigInt(&ans);
-
-    if(num1->head == NULL || num2->head == NULL){
-        printf("Subtraction operation cannot be performed since ");
-        printf("atleast One of the numbers you entered is invalid , please enter numbers correctly ");
-        printf("returning NULL values as answer \n\n");
-        return ans;
-    }
-
-    num2->sign = !(num2->sign);
-    ans = addNumbers(num1,num2);
-    num2->sign = !(num2->sign);
-    return ans;
-}
-
-BigInt multiplyNumbers(BigInt* num1, BigInt* num2) {
-    BigInt ans;
-    initializeBigInt(&ans);
-    int flag = 1;
-    if(num1->head == NULL || num2->head == NULL){
-        printf("Multiplication operation cannot be performed since ");
-        printf("atleast One of the numbers you entered is invalid , please enter numbers correctly ");
-        printf("returning NULL values as answer \n\n");
-        return ans;
-    }
-
-    if(isBigIntZero(num1) || isBigIntZero(num2)){
-        Node* temp = createNode(0);
-        ans.head = ans.tail = temp;
-        ans.size++;
-        return ans;
-    }
-
-    Node* arr[309];
-    int idx = 0;
-    for (int i = 0; i < 309; i++) {
-        arr[i] = NULL;
-    }
-    int size = 1;
-    Node* ptr1 = num1->head;
-    while (ptr1) {
-        Node* ptr2 = num2->head;
-        Node* temphead = NULL;
-        Node* temptail = temphead;
-        short int carry = 0;
-        short int x = ptr1->data;
-
-        while (ptr2) {
-            short int mul = (x * ptr2->data) + carry;
-            carry = mul / 10;
-            mul = mul % 10;
-            AddatTail(&temphead, &temptail, mul);
-            ptr2 = ptr2->next;
+    short quotient_pos = 0;
+    bool started = FALSE;
+    
+    for (short i = 0; i < dividend.size; i++) {
+        if (current_size > 0 || dividend.digit_array[i] > 0) {
+            current.digit_array[current_size++] = dividend.digit_array[i];
+            current.size = current_size;
         }
+        
+        if (current_size > 0) {
+            uint8_t count = 0;
+            while (compareMagnitude(current, divisor) != SMALL) {
+                BigInt temp = subraction(current, divisor, current.size, POSITIVE);
+                free(current.digit_array);
+                current = temp;
+                count++;
 
-        if (carry) {
-            AddatTail(&temphead, &temptail, carry);
-        }
-
-        arr[idx++] = temphead;
-        ptr1 = ptr1->next;
-    }
-
-    Node* maintail = arr[0];
-
-    while (maintail->next) {
-        size++;
-        maintail = maintail->next;
-    }
-
-    int threshold = 1;
-    Node* head = arr[0];
-    for (int i = 1; i < idx; i++) {
-        Node* mainhead = arr[0];
-        int t = threshold;
-        while(t > 0){
-            mainhead = mainhead->next;
-            t--;
-        }
-        short int carry = 0;
-        Node* temp = arr[i];
-        while (mainhead && temp && size <= 309) {
-            short int sum = (mainhead->data) + (temp->data) + carry;
-            carry = sum / 10;
-            sum = sum % 10;
-            mainhead->data = sum;
-            mainhead = mainhead->next;
-            temp = temp->next;
-        }
-        while (temp && size < 309) {
-            short int sum = (temp->data) + carry;
-            carry = sum / 10;
-            sum = sum % 10;
-            AddatTail(&(head),&(maintail),sum);
-            temp = temp->next;
-            size++;
-            if(size >= 309){
-                flag = 0;
+                short j = 0;
+                while (j < current.size - 1 && current.digit_array[j] == 0) {
+                    j++;
+                }
+                if (j > 0) {
+                    memmove(current.digit_array, current.digit_array + j, current.size - j);
+                    current_size = current.size - j;
+                    current.size = current_size;
+                }
+            }
+            
+            if (count > 0 || started) {
+                quotient.digit_array[quotient_pos++] = count;
+                started = TRUE;
             }
         }
-        if(carry  && size < 309){
-            AddatTail(&(head),&(maintail),carry);
-            size++;
-        }
-        else if(carry && size >= 309){
-            flag = 0;
-        }
-        threshold++;
     }
 
-    ans.head = arr[0];
-    ans.tail = maintail;
-    ans.size = size;
-
-    for(int i = 1;i < idx;i++){ //freeing out all the steps that were stored in the heap
-        Node* temp = arr[i];
-        while(temp){
-            Node* f = temp;
-            temp = temp->next;
-            free(f);
-        }
-        arr[i] = NULL;
+    if (quotient_pos == 0) {
+        quotient.size = 1;
+        quotient.digit_array[0] = 0;
+    } else {
+        quotient.size = quotient_pos;
     }
 
-    if(num1->sign == num2->sign){
-        ans.sign = POSITIVE;
-    }
-    else{
-        ans.sign = NEGATIVE;
-    }
-    if(!flag){
-        printf("\n\n\n");
-        printf("In the Multiplication function\n");
-        printf("\nBit Overflow (or) UnderFlow\n");
-        printf("The returned ans is inaccurate\n");
-    }
-    Node* temp = ans.tail;
-    //identifying leading zeroes if any
-    while(temp && temp->data == 0){
-        temp = temp->prev;
-    }
-    //resetting the values
-    if(temp){
-        ans.tail = temp;
-        temp = temp->next;
-        ans.tail->next = NULL;
-    }
-    else{
-        temp = ans.head->next;
-        ans.head->next = NULL;
-    }
-    while(temp){
-        Node* x = temp;
-        temp = temp->next;
-        free(x);
-    }
-    return ans;
+    quotient.sign = (dividend.sign == divisor.sign) ? POSITIVE : NEGATIVE;
+    free(current.digit_array);
+    
+    return quotient;
 }
 
-int main()
-{
-    BigInt num1;
-    initializeBigInt(&num1);
-    BigInt num2;
-    initializeBigInt(&num2);
-    system("cls");
-    printf("\n\nIf the number is positive then enter it in the format of + sign (or) blank space followed by the number  ");
-    printf("Else if the number is negative then enter it in the format of - sign followed by the number  \n\n");
-    char s[309]; // due to above logic fixed size to 309
-    
-    char opstatus = 'Y';
-    printf("\nEnter The bigint : \n");
-    gets(s);
-
-    while(!isFormatValid(s)){
-        printf("Please enter number in specified format\n");
-        printf("Reenter a new BigInt : \n");
-        fflush(stdin);
-        gets(s);
+BigInt input_string_1 () {
+    printf("enter first number : ");
+    char* input_string1 = (char*) malloc(sizeof(char) * BIGINT_SIZE);
+    if (input_string1 == NULL) {
+        free(input_string1);
+        fprintf(stderr, "Memory allocation failed is1\n");
+        exit(EXIT_FAILURE);
     }
-    readNum(&num1,s);
 
-    printf("\nenter The bigint : \n");
-    gets(s);
-    while(!isFormatValid(s)){
-        printf("Please enter number in specified format\n");
-        printf("Reenter a new BigInt : \n");
-        fflush(stdin);
-        gets(s);
+    bool validInput = FALSE;
+    while (!validInput) {
+        scanf("%310s", input_string1);
+        // Check if input was too long
+        int c;
+        if ((c = getchar()) != '\n' && c != EOF) {
+            // Clear input buffer
+            while ((c = getchar()) != '\n' && c != EOF);
+            printf("Input too long - maximum 309 digits allowed.\n");
+            printf("Please enter a shorter number: ");
+            continue;  // Go back to start of loop for new input
+        }
+        // Check if input format is valid
+        if (!isValidInput(input_string1)) {
+            printf("Please enter valid input: ");
+            continue;  // Go back to start of loop for new input
+        }
+        validInput = TRUE;  // If we get here, input is valid
     }
-    readNum(&num2,s);
-    BigInt num3 = addNumbers(&num1,&num2);
-    printf("\n\n\n");
-    printf("\nsum = \n");
-    displayNum(&num3);
+     
+    BigInt b1;
+    printf("first number : ");
+    b1 = readNumFromString(input_string1);
+    printDigits(b1);
+    return b1;
+}
 
-    BigInt num4 = subtractNumbers(&num1,&num2);
-    printf("\n\n\n");
-    printf("\ndifference = \n");
-    displayNum(&num4);
+BigInt input_string_2 () {
+    printf("enter second number : ");
+    char* input_string2 = (char*) malloc(sizeof(char) * BIGINT_SIZE);
+    if (input_string2 == NULL) {
+        free(input_string2);
+        fprintf(stderr, "Memory allocation failed is2\n");
+        exit(EXIT_FAILURE);
+    }
 
-    BigInt Num3 = multiplyNumbers(&num1,&num2);
-    printf("\n\n\n");
-    printf("\nproduct of numbers = \n");
-    displayNum(&Num3);
+    bool validInput = FALSE;
+    while (!validInput) {
+        scanf("%310s", input_string2);    
+        // Check if input was too long
+        int c;
+        if ((c = getchar()) != '\n' && c != EOF) {
+            // Clear input buffer
+            while ((c = getchar()) != '\n' && c != EOF);
+            printf("Input too long - maximum 309 digits allowed.\n");
+            printf("Please enter a shorter number: ");
+            continue;
+        }
 
+        // Check if input format is valid
+        if (!isValidInput(input_string2)) {
+            printf("Please enter valid input: ");
+            continue;
+        }
+
+        validInput = TRUE;
+    }
+
+    BigInt b2;
+    printf("second number : ");
+    b2 = readNumFromString(input_string2);
+    printDigits(b2);
+    return b2;
+}
+
+int main() {
+    BigInt b1;
+    BigInt b2;
+    system("cls"); //clears terminal every times it runs
+    printf("Operations :\n");
+    printf("1 : enter 1 for Addition\n");
+    printf("2 : enter 2 for Subraction\n");
+    printf("3 : enter 3 for Multiplication\n");
+    printf("4 : enter 4 for Division\n");
+    printf("5 : enter 5 to exit\n");
+
+    int op;
+    printf("enter your option : ");
+    scanf("%d", &op);
+    BigInt b;
+
+    //this does not work as calculator but this just do some operations with above two bigints and make inteface for it
+    while (op != 5 && op < 5 && op > 0) {
+        bool flag = TRUE;
+
+        switch (op) {
+
+            case 1 : {
+                printf("if the number is positive enter the number with sign(+) or you can leave blank space(i.e press space bar once and enter the number) and if the number is negative enter the number with sign(-)\n");
+                b1 = input_string_1();
+                b2 = input_string_2();
+                b = addTwoNumbers(b1, b2);
+                printf("sum of two numbers is : ");
+                printDigits(b);
+                break;
+            }
+
+            case 2 : {
+                printf("if the number is positive enter the number with sign(+) or you can leave blank space(i.e press space bar once and enter the number) and if the number is negative enter the number with sign(-)\n");
+                b1 = input_string_1();
+                b2 = input_string_2();
+                b = subtracTwotBigInts(b1, b2);
+                printf("difference of two numbers is : ");
+                printDigits(b);
+                break;
+            }
+
+            case 3 : {
+                printf("if the number is positive enter the number with sign(+) or you can leave blank space(i.e press space bar once and enter the number) and if the number is negative enter the number with sign(-)\n");
+                b1 = input_string_1();
+                b2 = input_string_2();
+                b = multiplyTwoBigInt(b1, b2);
+                printf("product of two numbers is : ");
+                printDigits(b);
+                break;
+            }
+
+            case 4 : {
+                printf("if the number is positive enter the number with sign(+) or you can leave blank space(i.e press space bar once and enter the number) and if the number is negative enter the number with sign(-)\n");
+                b1 = input_string_1();
+                b2 = input_string_2();
+                b = divideBigInt(b1, b2);
+                printf("division of two numbers is : ");
+                printDigits(b);
+                break;
+            }
+
+            case 5 : {
+                flag = FALSE;
+                break;
+            }
+
+            default : {
+                flag = FALSE;
+                break;
+            }
+        }
+
+        if (flag) {
+            printf("Operations :\n");
+            printf("1 : enter 1 for Addition\n");
+            printf("2 : enter 2 for Subraction\n");
+            printf("3 : enter 3 for Multiplication\n");
+            printf("4 : enter 4 for divison.\n");
+            printf("5 : enter 5 to exit\n");
+            printf("enter your option : ");
+            scanf("%d", &op);
+        }
+    }
+
+    (op == 5) ? printf("exited\n") : printf("you entered wrong number. exited \n");
+
+    free(b1.digit_array);
+    b1.digit_array = NULL;
+    free(b2.digit_array);
+    b2.digit_array = NULL;
+    free(b.digit_array);
+    b.digit_array = NULL;
     return 0;
 }
