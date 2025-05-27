@@ -1,5 +1,3 @@
-//MUKESH - BT23CSE017 - ASSIGNMENT 1
-
 /* 
 Since implementation has to be done for a 1024-bit integer we can calculate the number of bits required to
 represent it as an integer and create a array of char type of that size
@@ -16,6 +14,10 @@ represent it as an integer and create a array of char type of that size
 #include<stdint.h> //for unsigned integers of 8bits(1byte)
 
 #define BIGINT_SIZE 311 //309 digits + 1 for sign + 1 for \0(null termiantor)
+#define MAX_DIGITS 309 //maximum digits is 309 digits as explained above
+//as we are using 8 bit unsigned integers to store digits
+#define BASE 10
+#define KARATSUBA_THRESHOLD 32 // threshold for Karatsuba multiplication, can be adjusted based on performance needs
 
 typedef enum {FALSE, TRUE} bool;
 typedef enum {POSITIVE, NEGATIVE} numSign;
@@ -184,6 +186,9 @@ short size_diff (BigInt b1, BigInt b2) {
 
 //function assumes that b1 > b2
 BigInt subraction (BigInt b1, BigInt b2, short size, numSign sign) {
+    if (size > MAX_DIGITS) {
+        printf("Overflow Warning: Subtraction result size %d exceeds max allowed %d digits.\n", size, MAX_DIGITS);
+    }
     BigInt b;
     initializeBigInt(&b, size, sign);
     short i = b1.size - 1;
@@ -231,13 +236,16 @@ BigInt addTwoNumbers (BigInt b1, BigInt b2) {
     if (b1.sign == b2.sign) {
         short sizeDiff = size_diff(b1, b2);
         short length = max(b1.size, b2.size) + 1; // extra 1 block for carry. if carry exists actually it overflows so to prevent overflow extra one block
+        if (length > MAX_DIGITS) {
+            printf("Overflow Warning: Addition result exceeds %d digits.\n", MAX_DIGITS);
+        }
         sign = b1.sign;
         initializeBigInt(&b, length, sign);
         short size;
         size = max(b1.size, b1.size);
         short i = b1.size - 1;
         uint8_t carry = 0;
-        short j = b2.size-1;
+        short j = b2.size - 1;
 
         while (i >= 0 && j >= 0) {
             uint8_t digitSum = b1.digit_array[i] + b2.digit_array[j] + carry;
@@ -338,11 +346,14 @@ BigInt subtracTwotBigInts (BigInt b1, BigInt b2) {
     return b;
 }
 
-//i wont consider overflow rather store the whole result in a bigint structure in which array could have maximum size of 618(309 + 309)
+//I store the whole result in a bigint structure in which array could have maximum size of 618(309 + 309)
 BigInt multiplyTwoBigInt (BigInt b1, BigInt b2) {
     BigInt b;
     numSign sign = b1.sign ^ b2.sign;
     short size = b1.size + b2.size;
+    if (size > MAX_DIGITS) {
+        printf("Overflow Warning: result size exceeds MAX_DIGITS\n");
+    }
     initializeBigInt(&b, size, sign);
     b.sign = POSITIVE;
     short size1 = b1.size;
@@ -352,6 +363,9 @@ BigInt multiplyTwoBigInt (BigInt b1, BigInt b2) {
     for (short i = size2 - 1; i >= 0; i--) {
         BigInt pb;
         //array with extraspacing, the extra spacing has zeroes because as we shift left by 1 and add 0 at right and continues this method
+        if (size1 + 1 + extraSpacing > MAX_DIGITS) {
+            printf("Overflow Warning: partial product size exceeds MAX_DIGITS\n");
+        }
         initializeBigInt(&pb, size1 + 1 + extraSpacing, POSITIVE);
         int8_t carry = 0;
         short j;
@@ -361,8 +375,14 @@ BigInt multiplyTwoBigInt (BigInt b1, BigInt b2) {
             pb.digit_array[ind] = digitMulti % 10;
             carry = digitMulti / 10;
             ind--;
+            if (ind < 0 && (j > 0 || carry > 0)) {
+                printf("Index overflow in multiplication loop\n");
+            }
         }
         if (carry != 0) {
+            if (ind < 0) {
+                printf("Index overflow while placing carry\n");
+            }
             pb.digit_array[ind] = carry;
             ind--;
         }
@@ -375,41 +395,98 @@ BigInt multiplyTwoBigInt (BigInt b1, BigInt b2) {
     return b;
 }
 
-void printDigits(BigInt b) {
-    short size = b.size;
-    short i = 0;
-
-    //to make sure starting zeroes are not printed
-    while (i < size - 1 && b.digit_array[i] == 0) {
-        i = i + 1;
+void freeBigInt(BigInt *b) {
+    if (b == NULL) return;    
+    if (b->digit_array != NULL) {
+        free(b->digit_array);
+        b->digit_array = NULL;  
     }
-
-    if (isBigIntZero(b)) {
-        printf("0\n");
-        return;
-    }
-
-    char sign = (b.sign == POSITIVE) ? '+' : '-';
-    printf("%c", sign);
-
-    for (; i < size; i++) {
-        printf("%u", b.digit_array[i]);
-    }
-
-    printf("\n");
+    b->size = 0;
+    b->sign = POSITIVE;
 }
 
-BigInt copyBigInt (BigInt b) {
-    BigInt b1;
-    initializeBigInt(&b1, b.size, b.sign);
+BigInt shiftLeft(BigInt b, int n) {
+    BigInt res;
+    initializeBigInt(&res, b.size + n, b.sign);
+    memset(res.digit_array + res.size - n, 0, n);
+
     for (int i = 0; i < b.size; i++) {
-        b1.digit_array[i] = b.digit_array[i];
+        res.digit_array[i] = b.digit_array[i];
     }
-    return b1;
+    return res;
+}
+
+// Karatsuba multiplication recursive
+BigInt karatsubaMultiply(BigInt x, BigInt y) {
+    int n = x.size > y.size ? x.size : y.size;
+
+    // Base case: use naive multiplication for small numbers
+    if (n <= KARATSUBA_THRESHOLD) {
+        return multiplyTwoBigInt(x, y);
+    }
+
+    int half = n / 2;
+
+    // Split x into high and low parts
+    BigInt x_high, x_low;
+    initializeBigInt(&x_high, x.size - half > 0 ? x.size - half : 0, POSITIVE);
+    initializeBigInt(&x_low, half, POSITIVE);
+
+    memcpy(x_high.digit_array, x.digit_array, (x.size - half) * sizeof(uint8_t));
+    memcpy(x_low.digit_array, x.digit_array + x.size - half, half * sizeof(uint8_t));
+
+    // Split y into high and low parts
+    BigInt y_high, y_low;
+    initializeBigInt(&y_high, y.size - half > 0 ? y.size - half : 0, POSITIVE);
+    initializeBigInt(&y_low, half, POSITIVE);
+
+    memcpy(y_high.digit_array, y.digit_array, (y.size - half) * sizeof(uint8_t));
+    memcpy(y_low.digit_array, y.digit_array + y.size - half, half * sizeof(uint8_t));
+
+    // Compute three products recursively
+    BigInt z0 = karatsubaMultiply(x_low, y_low);
+    BigInt z2 = karatsubaMultiply(x_high, y_high);
+
+    BigInt x_sum = addTwoNumbers(x_low, x_high);
+    BigInt y_sum = addTwoNumbers(y_low, y_high);
+    BigInt z1 = karatsubaMultiply(x_sum, y_sum);
+
+    // z1 = z1 - z2 - z0
+    BigInt temp = subtracTwotBigInts(z1, z2);
+    BigInt z1_final = subtracTwotBigInts(temp, z0);
+
+    // Combine results:
+    // result = z2 * BASE^{2*half} + z1 * BASE^{half} + z0
+
+    BigInt z2_shift = shiftLeft(z2, 2 * half);
+    BigInt z1_shift = shiftLeft(z1_final, half);
+
+    BigInt temp_sum = addTwoNumbers(z2_shift, z1_shift);
+    BigInt result = addTwoNumbers(temp_sum, z0);
+
+    // Set sign
+    result.sign = x.sign ^ y.sign;
+
+    // Free temporaries
+    freeBigInt(&x_high);
+    freeBigInt(&x_low);
+    freeBigInt(&y_high);
+    freeBigInt(&y_low);
+    freeBigInt(&z0);
+    freeBigInt(&z1);
+    freeBigInt(&z2);
+    freeBigInt(&x_sum);
+    freeBigInt(&y_sum);
+    freeBigInt(&temp);
+    freeBigInt(&z1_final);
+    freeBigInt(&z2_shift);
+    freeBigInt(&z1_shift);
+    freeBigInt(&temp_sum);
+
+    return result;
 }
 
 BigInt divideBigInt(BigInt dividend, BigInt divisor) {
-    
     if (isBigIntZero(divisor)) {
         printf("Error: Division by zero\n");
         BigInt result;
@@ -476,6 +553,39 @@ BigInt divideBigInt(BigInt dividend, BigInt divisor) {
     free(current.digit_array);
     
     return quotient;
+}
+
+void printDigits(BigInt b) {
+    short size = b.size;
+    short i = 0;
+
+    //to make sure starting zeroes are not printed
+    while (i < size - 1 && b.digit_array[i] == 0) {
+        i = i + 1;
+    }
+
+    if (isBigIntZero(b)) {
+        printf("0\n");
+        return;
+    }
+
+    char sign = (b.sign == POSITIVE) ? '+' : '-';
+    printf("%c", sign);
+
+    for (; i < size; i++) {
+        printf("%u", b.digit_array[i]);
+    }
+
+    printf("\n");
+}
+
+BigInt copyBigInt (BigInt b) {
+    BigInt b1;
+    initializeBigInt(&b1, b.size, b.sign);
+    for (int i = 0; i < b.size; i++) {
+        b1.digit_array[i] = b.digit_array[i];
+    }
+    return b1;
 }
 
 BigInt input_string_1 () {
@@ -578,9 +688,11 @@ int main() {
                 printf("if the number is positive enter the number with sign(+) or you can leave blank space(i.e press space bar once and enter the number) and if the number is negative enter the number with sign(-)\n");
                 b1 = input_string_1();
                 b2 = input_string_2();
+
                 b = addTwoNumbers(b1, b2);
                 printf("sum of two numbers is : ");
                 printDigits(b);
+                freeBigInt(&b); 
                 break;
             }
 
@@ -588,9 +700,11 @@ int main() {
                 printf("if the number is positive enter the number with sign(+) or you can leave blank space(i.e press space bar once and enter the number) and if the number is negative enter the number with sign(-)\n");
                 b1 = input_string_1();
                 b2 = input_string_2();
+
                 b = subtracTwotBigInts(b1, b2);
                 printf("difference of two numbers is : ");
                 printDigits(b);
+                freeBigInt(&b);
                 break;
             }
 
@@ -598,9 +712,11 @@ int main() {
                 printf("if the number is positive enter the number with sign(+) or you can leave blank space(i.e press space bar once and enter the number) and if the number is negative enter the number with sign(-)\n");
                 b1 = input_string_1();
                 b2 = input_string_2();
-                b = multiplyTwoBigInt(b1, b2);
+    
+                BigInt b_karatsuba = karatsubaMultiply(b1, b2);
                 printf("product of two numbers is : ");
-                printDigits(b);
+                printDigits(b_karatsuba);
+                freeBigInt(&b_karatsuba);
                 break;
             }
 
@@ -639,11 +755,8 @@ int main() {
 
     (op == 5) ? printf("exited\n") : printf("you entered wrong number. exited \n");
 
-    free(b1.digit_array);
-    b1.digit_array = NULL;
-    free(b2.digit_array);
-    b2.digit_array = NULL;
-    free(b.digit_array);
-    b.digit_array = NULL;
+    freeBigInt(&b1);
+    freeBigInt(&b2);
+
     return 0;
 }
